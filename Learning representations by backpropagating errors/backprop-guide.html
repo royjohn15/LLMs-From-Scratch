@@ -1,0 +1,519 @@
+<title>Backprop From Scratch</title>
+<style>
+  :root {
+    --ground:      #F2F5F6;
+    --surface:     #FFFFFF;
+    --ink:         #17212A;
+    --ink-soft:    #4E5F6B;
+    --ink-faint:   #7C8C96;
+    --rule:        #D6DEE2;
+    --fwd:         #0E6E6B;
+    --fwd-wash:    #E2F0EE;
+    --bwd:         #A8452A;
+    --bwd-wash:    #F7E9E3;
+    --code-bg:     #EAF0F1;
+    --shadow:      0 1px 2px rgba(23,33,42,.06), 0 6px 20px rgba(23,33,42,.05);
+
+    --f-display: "Palatino Linotype", Palatino, "Book Antiqua", "URW Palladio L", Georgia, serif;
+    --f-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "DejaVu Sans", Arial, sans-serif;
+    --f-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+
+    --measure: 70ch;
+    --step: 1.5rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:   #10171A;
+      --surface:  #171F23;
+      --ink:      #E3EBEC;
+      --ink-soft: #9DACB2;
+      --ink-faint:#74858C;
+      --rule:     #27363B;
+      --fwd:      #56C9BF;
+      --fwd-wash: #13302F;
+      --bwd:      #E8916A;
+      --bwd-wash: #33201A;
+      --code-bg:  #101A1D;
+      --shadow:   0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:   #10171A;
+    --surface:  #171F23;
+    --ink:      #E3EBEC;
+    --ink-soft: #9DACB2;
+    --ink-faint:#74858C;
+    --rule:     #27363B;
+    --fwd:      #56C9BF;
+    --fwd-wash: #13302F;
+    --bwd:      #E8916A;
+    --bwd-wash: #33201A;
+    --code-bg:  #101A1D;
+    --shadow:   0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 61rem;
+    margin: 0 auto;
+    padding: clamp(1.75rem, 4vw, 4rem) clamp(1.1rem, 4vw, 3rem) 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(2.5rem, 5vw, 4rem);
+  }
+
+  /* ---------- masthead ---------- */
+  header.mast { display: flex; flex-direction: column; gap: .9rem; }
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: .72rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--fwd);
+  }
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: clamp(2.3rem, 6vw, 3.7rem);
+    line-height: 1.04;
+    letter-spacing: -.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-family: var(--f-display);
+    font-size: clamp(1.05rem, 2.2vw, 1.3rem);
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: var(--measure);
+    margin: 0;
+  }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: .5rem .75rem;
+    font-family: var(--f-mono); font-size: .74rem;
+    color: var(--ink-faint);
+    border-top: 1px solid var(--rule);
+    padding-top: .85rem;
+  }
+  .meta span::after { content: " ·"; color: var(--rule); }
+  .meta span:last-child::after { content: ""; }
+
+  /* ---------- generic section ---------- */
+  section { display: flex; flex-direction: column; gap: 1.15rem; }
+  h2 {
+    font-family: var(--f-display);
+    font-size: clamp(1.5rem, 3.2vw, 2rem);
+    font-weight: 600;
+    letter-spacing: -.01em;
+    line-height: 1.15;
+    margin: 0;
+    padding-bottom: .5rem;
+    border-bottom: 2px solid var(--ink);
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--f-body);
+    font-size: .95rem;
+    font-weight: 700;
+    letter-spacing: .01em;
+    margin: 0;
+  }
+  p { margin: 0; max-width: var(--measure); }
+  a { color: var(--fwd); }
+  strong { font-weight: 650; }
+  em.term { font-style: normal; font-family: var(--f-mono); font-size: .9em; color: var(--bwd); }
+
+  ul.plain { margin: 0; padding-left: 1.15rem; max-width: var(--measure); display: flex; flex-direction: column; gap: .4rem; }
+  ul.plain li::marker { color: var(--ink-faint); }
+
+  .lede { color: var(--ink-soft); max-width: var(--measure); }
+
+  /* ---------- code ---------- */
+  pre {
+    margin: 0;
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: .95rem 1.05rem;
+    overflow-x: auto;
+    font-family: var(--f-mono);
+    font-size: .8rem;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+  code { font-family: var(--f-mono); font-size: .87em; }
+  p code, li code, td code { background: var(--code-bg); padding: .08em .32em; border-radius: 2px; }
+
+  /* ---------- equation cards ---------- */
+  .eqgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 1rem; }
+  .eq {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--fwd);
+    border-radius: 3px;
+    padding: 1rem 1.1rem;
+    display: flex; flex-direction: column; gap: .55rem;
+    box-shadow: var(--shadow);
+  }
+  .eq.back { border-top-color: var(--bwd); }
+  .eq .tag {
+    font-family: var(--f-mono); font-size: .68rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--fwd);
+  }
+  .eq.back .tag { color: var(--bwd); }
+  .eq .math {
+    font-family: var(--f-display);
+    font-size: 1.12rem;
+    line-height: 1.5;
+    overflow-x: auto;
+  }
+  .eq .note { font-size: .85rem; color: var(--ink-soft); }
+  sub, sup { font-size: .68em; line-height: 0; }
+
+  /* ---------- phases ---------- */
+  .phases { display: flex; flex-direction: column; gap: 1rem; }
+  .phase {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    box-shadow: var(--shadow);
+    display: grid;
+    grid-template-columns: 3.4rem 1fr;
+  }
+  .phase .num {
+    font-family: var(--f-mono);
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--fwd);
+    background: var(--fwd-wash);
+    border-right: 1px solid var(--rule);
+    display: flex; justify-content: center;
+    padding-top: 1.05rem;
+    border-radius: 3px 0 0 3px;
+  }
+  .phase .body { padding: 1rem 1.15rem 1.15rem; display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
+  .phase h3 { font-size: 1.02rem; font-family: var(--f-display); font-weight: 600; letter-spacing: -.005em; }
+  .phase p, .phase ul.plain { font-size: .93rem; }
+  .done {
+    border-left: 3px solid var(--bwd);
+    background: var(--bwd-wash);
+    padding: .6rem .8rem;
+    font-size: .88rem;
+    display: flex; flex-direction: column; gap: .3rem;
+  }
+  .done .lbl {
+    font-family: var(--f-mono); font-size: .66rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--bwd);
+  }
+
+  /* ---------- tables ---------- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th, td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--f-mono); font-size: .68rem; letter-spacing: .11em; text-transform: uppercase;
+    color: var(--ink-faint); background: var(--code-bg); white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* ---------- callout ---------- */
+  .callout {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--fwd);
+    background: var(--surface);
+    padding: .9rem 1.05rem;
+    display: flex; flex-direction: column; gap: .4rem;
+    max-width: var(--measure);
+  }
+  .callout .lbl {
+    font-family: var(--f-mono); font-size: .66rem; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--fwd);
+  }
+  .callout p { font-size: .92rem; }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 1rem;
+    font-family: var(--f-mono);
+    font-size: .74rem;
+    color: var(--ink-faint);
+  }
+
+  @media (max-width: 30rem) {
+    .phase { grid-template-columns: 1fr; }
+    .phase .num { border-right: none; border-bottom: 1px solid var(--rule); justify-content: flex-start; padding: .5rem .9rem; border-radius: 3px 3px 0 0; }
+  }
+
+  @media print {
+    body { background: #fff; color: #000; font-size: 10.5pt; }
+    .wrap { max-width: none; padding: 0; gap: 1.6rem; }
+    .phase, .eq, .callout, .tablewrap, pre { box-shadow: none; break-inside: avoid; }
+    section { break-inside: auto; }
+    h2 { break-after: avoid; }
+    .eqgrid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <div class="eyebrow">Implementation Guide</div>
+  <h1>Backprop From Scratch</h1>
+  <p class="standfirst">A build order for a complete, testable neural-network framework in NumPy — and for using it to reproduce the experiments in Rumelhart, Hinton &amp; Williams (1986), <em>Learning representations by back-propagating errors</em>.</p>
+  <div class="meta">
+    <span>14 phases</span><span>NumPy + Matplotlib only</span><span>notation follows your own notes</span><span>every phase ends in a check you can run</span>
+  </div>
+</header>
+
+<section>
+  <h2>Read this part before writing a line</h2>
+  <p class="lede">Three decisions come first, because getting them wrong costs a rewrite rather than an edit.</p>
+
+  <div class="callout">
+    <div class="lbl">1 — Fix your notation and never change it</div>
+    <p>Your PDF notes already commit to a scheme: layers <code>k = 0…L</code>, activation <code>x<sub>i</sub><sup>(k)</sup></code>, pre-activation <code>z<sub>j</sub><sup>(k+1)</sup></code>, weight <code>w<sub>ij</sub><sup>(k)</sup></code> running from unit <em>i</em> of layer <em>k</em> to unit <em>j</em> of layer <em>k+1</em>. The 1986 paper uses <code>x<sub>j</sub></code> for total input and <code>y<sub>j</sub></code> for output — the exact opposite of your <code>x</code>. Pick yours, write the translation table into a docstring at the top of the package, and read every paper equation through it. Most "my gradient is wrong" bugs at this stage are actually a notation slip.</p>
+  </div>
+
+  <div class="callout">
+    <div class="lbl">2 — Extract the spec into a checklist</div>
+    <p>The paper is the spec. Before coding, write out every architecture, count, and hyperparameter you intend to reproduce (the table further down is a starting point) and keep it as <code>SPEC.md</code>. At the end, each line gets ticked against a number your code actually printed — not against a plot that looks about right.</p>
+  </div>
+
+  <div class="callout">
+    <div class="lbl">3 — Settle the implementation forks now</div>
+    <p>NumPy float64 arrays, batch-as-rows (<code>X</code> is <code>n_cases × n_units</code>), no autograd, no PyTorch, no classes deeper than one level of inheritance. Matplotlib only inside <code>viz.py</code> so the core stays dependency-light. Sigmoid units everywhere by default, since that is what the paper uses and what its results depend on.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The four equations everything else serves</h2>
+  <p class="lede">Written in your notation, for the squared-error measure of the paper: <code>E = ½ Σ<sub>c</sub> Σ<sub>j</sub> (x<sub>j</sub><sup>(L)</sup> − y<sub>j</sub>)²</code>, summed over cases <em>c</em> and output units <em>j</em>. Teal is the forward pass, rust the backward pass — keep that colour split in your own diagrams and log output, it makes wiring errors visible.</p>
+
+  <div class="eqgrid">
+    <div class="eq">
+      <div class="tag">Forward — pre-activation</div>
+      <div class="math">z<sub>j</sub><sup>(k+1)</sup> = Σ<sub>i</sub> w<sub>ij</sub><sup>(k)</sup> x<sub>i</sub><sup>(k)</sup> + b<sub>j</sub><sup>(k)</sup></div>
+      <div class="note">The only place the weights are used in the forward direction. Cache <code>x<sup>(k)</sup></code> here — the backward pass needs it.</div>
+    </div>
+    <div class="eq">
+      <div class="tag">Forward — activation</div>
+      <div class="math">x<sub>j</sub><sup>(k+1)</sup> = φ(z<sub>j</sub><sup>(k+1)</sup>),&nbsp; φ(z) = 1 / (1 + e<sup>−z</sup>)</div>
+      <div class="note">Cache the <em>output</em>, not the input: the logistic derivative is <code>φ′ = x(1 − x)</code>, cheaper from the output.</div>
+    </div>
+    <div class="eq back">
+      <div class="tag">Backward — delta recursion</div>
+      <div class="math">δ<sub>j</sub><sup>(L)</sup> = (x<sub>j</sub><sup>(L)</sup> − y<sub>j</sub>) φ′(z<sub>j</sub><sup>(L)</sup>)<br>δ<sub>i</sub><sup>(k)</sup> = (Σ<sub>j</sub> w<sub>ij</sub><sup>(k)</sup> δ<sub>j</sub><sup>(k+1)</sup>) φ′(z<sub>i</sub><sup>(k)</sup>)</div>
+      <div class="note">δ is <code>∂E/∂z</code>. The recursion is the whole paper: the error signal for a hidden unit is the weighted sum of the error signals it feeds.</div>
+    </div>
+    <div class="eq back">
+      <div class="tag">Backward — parameter gradients</div>
+      <div class="math">∂E/∂w<sub>ij</sub><sup>(k)</sup> = x<sub>i</sub><sup>(k)</sup> δ<sub>j</sub><sup>(k+1)</sup><br>∂E/∂b<sub>j</sub><sup>(k)</sup> = δ<sub>j</sub><sup>(k+1)</sup></div>
+      <div class="note">A bias is just a weight from a unit clamped at 1 — implement it that way in your head, separately in code.</div>
+    </div>
+  </div>
+
+  <p>The update rule the paper actually recommends is steepest descent with the momentum term, applied <strong>after</strong> gradients have been accumulated over all cases in the sweep:</p>
+  <pre>Δw(t) = −ε · ∂E/∂w(t) + α · Δw(t−1)        ε = learning rate, α = momentum (0.9 in the paper)</pre>
+
+  <p>The matrix forms you will actually write, with rows as cases:</p>
+  <pre>Z = X @ W + b                    # X: (n, in)   W: (in, out)   Z: (n, out)
+dX = dZ @ W.T                    # error signal handed to the previous layer
+dW = X.T @ dZ                    # summed over the batch automatically
+db = dZ.sum(axis=0)</pre>
+  <p>Note that <code>X.T @ dZ</code> already sums the gradient over cases, which is exactly the paper's batch ("sweep") mode. Per-case (online) mode is the same code with <code>n = 1</code> — do not write two implementations.</p>
+</section>
+
+<section>
+  <h2>The shape of the framework</h2>
+  <p class="lede">One rule makes the rest fall out: every layer is an object that knows how to run forwards, how to convert an incoming <code>∂E/∂output</code> into an outgoing <code>∂E/∂input</code>, and which parameters it owns. Weight sharing, recurrence, and gradient checking all become easy once parameters are objects passed by reference rather than raw arrays.</p>
+
+  <pre>class Parameter:            # value + gradient buffer, shared by reference
+    value: np.ndarray       # float64
+    grad:  np.ndarray       # accumulated, zeroed explicitly by the trainer
+
+class Layer:
+    def forward(self, x)  -> out      # caches whatever backward needs
+    def backward(self, g) -> g_in     # ACCUMULATES into p.grad, returns dE/dx
+    def parameters(self)  -> [Parameter]
+
+class Loss:
+    def forward(self, pred, target) -> float
+    def backward(self)              -> dE/dpred
+
+class Optimizer:                       # SGD(params, lr, momentum)
+    def step(self); def zero_grad(self)</pre>
+
+  <pre>backprop/
+  __init__.py       notation table in the module docstring
+  params.py         Parameter
+  layers.py         Dense, and later TiedDense for shared weights
+  activations.py    Sigmoid, Tanh, Identity  (each a Layer)
+  losses.py         SumSquaredError (the paper's), MeanSquaredError, CrossEntropy
+  init.py           uniform(-r, r) symmetry breaking, seeded
+  network.py        Sequential: forward, backward, parameters, zero_grad
+  optim.py          SGD with momentum; batch / minibatch / online driver
+  gradcheck.py      two-sided finite differences over every Parameter
+  train.py          sweep loop, history, early stop, checkpointing
+  viz.py            loss curves, Hinton diagrams, hidden-activity maps
+tasks/              xor.py symmetry.py family_trees.py encoder.py sequence.py
+experiments/        run_symmetry.py run_family_trees.py ...   (one file per figure)
+tests/              test_gradcheck.py test_layers.py test_optim.py test_tasks.py
+results/            .npz histories, .png figures — regenerable, never hand-edited</pre>
+
+  <div class="callout">
+    <div class="lbl">The one non-obvious design choice</div>
+    <p>Make activations their own layers rather than a flag on <code>Dense</code>. It doubles the number of objects in a network and removes an entire class of bugs — the <code>φ′</code> factor can then only ever be applied in one place, and you can gradient-check the linear map and the nonlinearity independently.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Build order</h2>
+  <p class="lede">Each phase ends with something you run and read. Do not start a phase until the previous phase's check has printed the number it promised — an unverified layer under a verified trainer wastes the whole stack.</p>
+
+  <div class="phases">
+
+    <div class="phase"><div class="num">01</div><div class="body">
+      <h3>Derive the equations by hand, on paper</h3>
+      <p>Take a 2–2–1 sigmoid network with biases and write out <code>∂E/∂w</code> for one hidden-to-output weight and one input-to-hidden weight, fully expanded. This is the content of the paper; everything after is bookkeeping.</p>
+      <div class="done"><div class="lbl">Done when</div>You can reproduce the delta recursion without looking, and your symbols match the ones in your PDF notes.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">02</div><div class="body">
+      <h3>Scalar prototype — loops, no vectorisation</h3>
+      <p>One file, ~120 lines, explicit Python loops over units and weights, hard-coded to one hidden layer. Train it on XOR (2–2–1). Slow and ugly is the point: it is the reference implementation you will check the fast one against.</p>
+      <div class="done"><div class="lbl">Done when</div>XOR error falls below 0.01 within 5,000 sweeps for at least 4 of 5 random seeds, and you print the seed that fails.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">03</div><div class="body">
+      <h3>The gradient checker — before anything else</h3>
+      <p>Two-sided finite differences: perturb one parameter by <code>h = 1e−5</code>, recompute the loss both ways, compare <code>(E₊ − E₋)/2h</code> with your analytic gradient using relative error <code>|a−n| / max(|a|,|n|,1e−12)</code>. Run it over <em>every</em> parameter of a small net, biases included.</p>
+      <p>This is the single highest-value component in the project. Every later phase is verified by it, which is why it comes third rather than last.</p>
+      <div class="done"><div class="lbl">Done when</div>Max relative error over all parameters of the loop prototype is below 1e−7 in float64, and deliberately breaking one term (drop <code>φ′</code>, transpose <code>W</code>) makes the check fail loudly.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">04</div><div class="body">
+      <h3>Parameter and Dense, vectorised</h3>
+      <p>Now write the real <code>Dense</code> layer against the matrix forms above. Gradients <em>accumulate</em> into <code>p.grad</code> (<code>+=</code>, never <code>=</code>) — this is what later makes tied weights and multi-input nets work for free.</p>
+      <div class="done"><div class="lbl">Done when</div><code>Dense</code> passes gradcheck standalone, and its gradients match the loop prototype's to 1e−12 on identical weights and inputs.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">05</div><div class="body">
+      <h3>Activations and losses as separate modules</h3>
+      <p>Sigmoid (with the <code>x(1−x)</code> derivative from the cached output), Tanh, Identity. Losses: the paper's sum-of-squares halved, plus mean-squared and cross-entropy for later comparison. Keep the sum-vs-mean distinction explicit in the class name — it silently rescales your learning rate.</p>
+      <div class="done"><div class="lbl">Done when</div>Each activation and each loss passes gradcheck on its own, and <code>SumSquaredError</code> on the XOR set equals your hand-computed value for one fixed weight vector.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">06</div><div class="body">
+      <h3>Network container</h3>
+      <p><code>Sequential</code>: forward through the list, backward through the reversed list, <code>parameters()</code> flattening every layer's, <code>zero_grad()</code>. Nothing clever. Add a <code>summary()</code> that prints layer shapes and total parameter count — you will use it in every experiment write-up.</p>
+      <div class="done"><div class="lbl">Done when</div>A 3-hidden-layer net with mixed activations passes end-to-end gradcheck, and <code>summary()</code> parameter counts match a hand calculation for the symmetry net (6–2–1 → 17 parameters).</div>
+    </div></div>
+
+    <div class="phase"><div class="num">07</div><div class="body">
+      <h3>Initialisation and symmetry breaking</h3>
+      <p>Uniform random in <code>(−r, r)</code> with <code>r</code> small (the paper uses small random weights; 0.3–0.5 works). Route every draw through one seeded <code>np.random.Generator</code> stored on the experiment, never the global one.</p>
+      <p>Then reproduce the failure the paper warns about: initialise all weights identically and watch hidden units stay identical forever. Keep it as a test — it is a result, not an accident.</p>
+      <div class="done"><div class="lbl">Done when</div>Two runs with the same seed produce bitwise-identical weights, and the all-equal-init XOR run is asserted to stay above 0.2 error after 5,000 sweeps.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">08</div><div class="body">
+      <h3>Optimiser: steepest descent, then momentum</h3>
+      <p>Implement plain <code>w ← w − ε·∂E/∂w</code> first and confirm it learns XOR. Then add the momentum recurrence exactly as written in the paper — store <code>Δw(t−1)</code> per parameter, and be careful that <code>ε</code> multiplies only the gradient term.</p>
+      <div class="done"><div class="lbl">Done when</div>Three hand-computed momentum steps match your optimiser to 1e−12, and batch-mode gradients equal the sum of per-case gradients to 1e−12 (assert it — this is the sweep/online equivalence the paper relies on).</div>
+    </div></div>
+
+    <div class="phase"><div class="num">09</div><div class="body">
+      <h3>Trainer, history, reproducibility</h3>
+      <p>A <code>train()</code> that takes a net, task, optimiser, sweep count, and mode (batch / minibatch / online); logs error per sweep plus whatever the task calls "correct"; and writes <code>results/&lt;experiment&gt;_&lt;seed&gt;.npz</code> with history, final weights, and the full config dict. Every experiment must be re-runnable from that config alone.</p>
+      <div class="done"><div class="lbl">Done when</div>A run reloaded from its <code>.npz</code> reproduces the same final error, and the config dict contains the seed, ε, α, architecture, and sweep count.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">10</div><div class="body">
+      <h3>Instrumentation</h3>
+      <p>Three plots, and no more for now: error-vs-sweeps curves (several seeds overlaid), a Hinton-style diagram of a weight matrix (square area ∝ |w|, filled/hollow by sign — this is how the paper shows its learned weights), and a hidden-activity matrix of all cases × hidden units. The last two are how you will <em>read</em> the representations rather than just score them.</p>
+      <div class="done"><div class="lbl">Done when</div>The Hinton diagram of a trained XOR net is legible enough that you can state each hidden unit's function from the picture alone.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">11</div><div class="body">
+      <h3>Experiment: symmetry detection</h3>
+      <p>Six input units, two hidden, one output; all 64 binary patterns; target 1 if the pattern is symmetric about its centre. Train with batch sweeps. The result to reproduce is not the error curve but the <em>structure</em>: weights from the input to each hidden unit come out in ratio 1 : 2 : 4 in magnitude, with mirror-image positions carrying opposite signs, so the two halves cancel exactly when — and only when — the pattern is symmetric.</p>
+      <div class="done"><div class="lbl">Done when</div>You print the 6×2 input-to-hidden matrix and assert the ratio and antisymmetry programmatically (within tolerance), for at least 3 of 5 seeds. A run that merely reaches low error has not reproduced the figure.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">12</div><div class="body">
+      <h3>Experiment: family trees</h3>
+      <p>The centrepiece, and the reason the paper is titled "learning <em>representations</em>". Two structurally isomorphic family trees (English and Italian), 24 people, 12 relations, 104 valid <code>(person1, relation) → person2</code> triples. The architecture is not a plain stack — two separate one-hot inputs each go through their own small encoding layer, meet in a central layer, then pass through a decoding layer to the 24-way output. Build it, hold out four triples, train the rest, and then <em>look at</em> the person-encoding units.</p>
+      <p>What you are checking is that the encoding units come to represent nationality, generation, and branch of the family — features nobody put in the data, which exist only because they make the task easier.</p>
+      <div class="done"><div class="lbl">Done when</div>You can name what at least three encoding units represent from the activity map, and the held-out triples are answered correctly (report the exact count out of 4, over several seeds — the paper's generalisation claim is a small number and should be reported as one).</div>
+    </div></div>
+
+    <div class="phase"><div class="num">13</div><div class="body">
+      <h3>Experiment: the 8–3–8 encoder</h3>
+      <p>Eight one-hot inputs, three hidden units, reconstruct the input. The hidden layer is forced to discover a binary code. Cheap to run, and it is the clearest demonstration in the whole project that hidden units are a learned representation rather than a fitting device.</p>
+      <div class="done"><div class="lbl">Done when</div>All 8 patterns are reconstructed correctly and the 8×3 hidden-activity table, rounded, contains 8 distinct binary codes.</div>
+    </div></div>
+
+    <div class="phase"><div class="num">14</div><div class="body">
+      <h3>Recurrent nets by unfolding, with tied weights</h3>
+      <p>The paper's final move: a recurrent network is a layered network in which corresponding layers share weights. Implement <code>TiedDense</code> — several layers holding the <em>same</em> <code>Parameter</code> objects. Because your gradients accumulate rather than assign, unrolling <em>T</em> steps and calling backward once already sums the gradient over time steps; the constraint is satisfied for free. Test on a small sequence task (parity of a bit stream, or completing a repeating sequence).</p>
+      <div class="done"><div class="lbl">Done when</div>An unrolled tied net passes gradcheck (the strongest possible test that sharing is correct), and its accumulated gradient equals the sum of the per-step gradients of an untied net with identical weights.</div>
+    </div></div>
+
+  </div>
+</section>
+
+<section>
+  <h2>Spec checklist</h2>
+  <p class="lede">Fill in the right-hand column from your copy of the paper before you start, then tick each line against a number your code printed. Values below are the ones commonly quoted for these experiments — treat them as targets to confirm, not as gospel.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Experiment</th><th>Architecture</th><th>Cases</th><th class="num">ε</th><th class="num">α</th><th>What "reproduced" means</th></tr></thead>
+      <tbody>
+        <tr><td>XOR (sanity)</td><td>2–2–1 sigmoid</td><td class="num">4</td><td class="num">0.1–0.5</td><td class="num">0.9</td><td>Error &lt; 0.01; both hidden units interpretable</td></tr>
+        <tr><td>Symmetry</td><td>6–2–1 sigmoid</td><td class="num">64</td><td class="num">0.1</td><td class="num">0.9</td><td>1:2:4 antisymmetric input weights</td></tr>
+        <tr><td>Family trees</td><td>24→6, 12→6, →12, →6, →24</td><td class="num">100 train / 4 held out</td><td class="num">0.005</td><td class="num">0.9</td><td>Interpretable encoding units + held-out triples correct</td></tr>
+        <tr><td>Encoder</td><td>8–3–8 sigmoid</td><td class="num">8</td><td class="num">0.1–0.5</td><td class="num">0.9</td><td>8 distinct binary hidden codes</td></tr>
+        <tr><td>Recurrent</td><td>tied weights, T steps unrolled</td><td>task-dependent</td><td class="num">—</td><td class="num">0.9</td><td>Gradcheck passes with sharing on</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Sweep counts in the paper are large (order 10<sup>3</sup> for symmetry, ~1,500 for family trees) and are reported as a property of a particular run — record yours per seed rather than quoting a single number.</p>
+</section>
+
+<section>
+  <h2>The bugs you will actually hit</h2>
+  <ul class="plain">
+    <li><strong>Updating weights inside the backward pass.</strong> Deltas for layer <em>k</em> must be computed with the <em>old</em> <code>w<sup>(k)</sup></code>. Compute all gradients, then step.</li>
+    <li><strong>Missing φ′ at the output layer.</strong> With squared error and sigmoid outputs the output delta still carries <code>x(1−x)</code>. Dropping it happens to still train, slowly — which is why only gradcheck catches it.</li>
+    <li><strong>Sum vs mean loss.</strong> A loss averaged over <em>n</em> cases scales every gradient by 1/<em>n</em>, so ε from the paper no longer means what it meant. The paper sums.</li>
+    <li><strong>Forgetting to zero gradients between sweeps.</strong> Accumulation is deliberate; zeroing must be too.</li>
+    <li><strong>Transposed weight matrix in the backward pass.</strong> <code>dX = dZ @ W.T</code>, not <code>W @ dZ</code>. Shape errors catch most cases; square layers hide it.</li>
+    <li><strong>Saturated sigmoids from large initial weights.</strong> Gradients vanish and the net never leaves its initial state — looks like a broken optimiser.</li>
+    <li><strong>Global RNG.</strong> One <code>np.random</code> call somewhere unseeded makes every "reproducible" run a lie.</li>
+    <li><strong>Symmetry between hidden units.</strong> Equal initial weights, or accidentally sharing one array across layers by assignment instead of copy.</li>
+    <li><strong>float32.</strong> Gradient checking needs float64; mixing precision makes the relative-error threshold meaningless.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>If you only do three things</h2>
+  <ul class="plain">
+    <li>Write the finite-difference gradient checker in phase 3, not at the end. Everything else in the project is verified by it.</li>
+    <li>Make gradients accumulate into shared <code>Parameter</code> objects. Weight sharing and recurrence then cost you nothing.</li>
+    <li>Judge the experiments by the structure of the learned weights and hidden activities, not by the error curve. The claim of the paper is about representations; an error curve does not test it.</li>
+  </ul>
+</section>
+
+<footer>Guide only — no framework code written. Repo: Learning representations by backpropagating errors · NumPy 2.5.1 available locally.</footer>
+
+</div>
